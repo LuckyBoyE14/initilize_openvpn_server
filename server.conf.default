@@ -11,9 +11,9 @@ explicit-exit-notify 0
 dev tun
 
 # Названия файлов, с помощью которых настраиваются ключи сервера
-ca ca.crt
-cert server.crt
-key server.key 
+ca /etc/openvpn/server/ca.crt
+cert /etc/openvpn/server/server.crt
+key /etc/openvpn/server/server.key 
 
 # Выбираем адресное пространство для наших клиентов и сервера
 # Некоторые службы автоматически создают сеть в 10.8.x.x, поэтому 
@@ -39,19 +39,30 @@ push "dhcp-option DNS 208.67.220.220"
 duplicate-cn
 
 # настройки автоматической проверки соединения
-keepalive 10 120
+keepalive 60 600
 
 # Настройка криптографии
-tls-auth ta.key
+tls-crypt /etc/openvpn/server/ta.key
 cipher AES-256-GCM
 auth SHA256
 # Так как используется ЦС, Диффи — Хеллмана не используется
 dh none
 
+# Оптимизация скорости соединения
+sndbuf 0
+rcvbuf 0
+push "sndbuf 524288"
+push "rcvbuf 524288"
+txqueuelen 100 
+tun-mtu 1500 
+tun-mtu-extra 32
+mssfix 1450
+# fragment 0
+
 # Нам нужно запустить OpenVPN без привилегий, с которыми он запущен, 
 # поэтому нам нужно указать на необходимость запуска с пользователем nobody и группой nogroup
 user nobody
-group nobody
+group nogroup
 
 # Опция необходимая для понижения привилегий при сбросе соединения (необходима)
 persist-key
@@ -60,17 +71,16 @@ persist-tun
 # логгирование openvpn сервера
 status /var/log/openvpn/openvpn-status.log
 # Уровень ошибок при логгировании
-verb 3
+verb 1
 
 # Далее будут опции для повышения скорости соединения
 # Enable compression on the VPN link and push the
 # option to the client (v2.4+ only, for earlier
 # versions see below)
-;compress lz4-v2
-;push "compress lz4-v2"
+compress lz4-v2
+push "compress lz4-v2"
 
 # For compression compatible with older clients use comp-lzo
 # If you enable it here, you must also
 # enable it in the client config file.
 ;comp-lzo
-

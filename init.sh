@@ -10,6 +10,8 @@ SCRIPT_PATH="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
 NON_ROOT_USER=www
 EASY_RSA=$HOME/easy-rsa
 SERVER_NAME=server
+CLIENT_DIR=$HOME/client-configs
+OPENVPN_PORT=443
 # --------------------------------------------------------------------------------------------------
 
 # --------------------------------------------------------------------------------------------------
@@ -18,6 +20,8 @@ SERVER_NAME=server
 echo "============================================================================================"
 echo "Установка OpenVPN и Easy-RSA"
 echo "============================================================================================"
+rm -rf $EASY_RSA/pki &> /dev/null
+rm -f $EASY_RSA/ta.key &> /dev/null
 mkdir -p $EASY_RSA
 ln -s /usr/share/easy-rsa/* $EASY_RSA/ &> /dev/null
 sudo chown $NON_ROOT_USER $EASY_RSA
@@ -42,6 +46,7 @@ echo "set_var EASYRSA_DIGEST         \"sha512\"" >> $EASY_RSA/vars
 # Создание pki дирректории
 cd $EASY_RSA
 ./easyrsa init-pki
+./easyrsa build-ca nopass
 echo "============================================================================================"
 # --------------------------------------------------------------------------------------------------
 
@@ -78,7 +83,7 @@ echo "==========================================================================
 cp $EASY_RSA/pki/reqs/server.req /tmp
 # Далее идут действия, которые выполняются на ЦС
 cd $EASY_RSA
-./easyrsa import-req tmp/server.req server
+#./easyrsa import-req /tmp/server.req server
 ./easyrsa sign-req server $SERVER_NAME
 cp pki/issued/server.crt /tmp
 cp pki/ca.crt /tmp
@@ -96,7 +101,7 @@ echo "==========================================================================
 echo "Настройка криптографических материалов OpenVPN"
 echo "============================================================================================"
 cd $EASY_RSA
-openvpn --genkey --secret ta.key
+openvpn --genkey secret ta.key
 sudo cp ta.key /etc/openvpn/server
 echo "Создание ta.key завершено"
 echo "============================================================================================"
@@ -108,6 +113,13 @@ echo "==========================================================================
 echo "============================================================================================"
 echo "Создание конфигурационного файла и конфигурация сети"
 echo "============================================================================================"
+PUBLIC_INTERFACE=$(ip route list default | cut -f 5 -d" ")
+IP_ADDR_SERVER=$(ip addr show dev $PUBLIC_INTERFACE | \
+	grep -m 1 "inet" | \
+	awk '{print $2}' | \
+	cut -f 1 -d "/")
+echo "Имя публичного интерфейса: $PUBLIC_INTERFACE"
+echo "IP адрес сервера $IP_ADDR_SERVER"
 sudo cp $SCRIPT_PATH/server.conf.default /etc/openvpn/server/server.conf
 sudo cp /etc/sysctl.conf /etc/sysctl.conf.backup
 sudo sed 's/#*\s*net.ipv4.ip_forward\s*=\s*1/net.ipv4.ip_forward = 1/' /etc/sysctl.conf.backup > /tmp/sysctl.conf
@@ -116,14 +128,13 @@ cat /etc/sysctl.conf | grep "net.ipv4.ip_forward"
 sudo sysctl -p
 
 echo "Изменение правил ufw"
-PUBLIC_INTERFACE=$(ip route list default | cut -f 5 -d" ")
-echo "Имя публичного интерфейса: $PUBLIC_INTERFACE"
 cd $SCRIPT_PATH
 sudo cp before.rules /etc/ufw/before.rules
 sudo sed 's/DEFAULT_FORWARD_POLICY="DROP"/DEFAULT_FORWARD_POLICY="ACCEPT"/' /etc/default/ufw > /tmp/ufw
 sudo cp /tmp/ufw /etc/default/ufw
 echo "Правила UFW:"
 sudo cat /etc/default/ufw | grep "DEFAULT_FORWARD_POLICY"
+sudo ufw allow 443/tcp
 sudo ufw allow OpenSSH
 echo "Перезапуск службы UFW"
 sudo ufw disable
@@ -132,5 +143,22 @@ echo "Запуск службы OpenVPN"
 sudo systemctl -f enable openvpn-server@$SERVER_NAME.service
 sudo systemctl restart openvpn-server@$SERVER_NAME.service
 sudo systemctl status openvpn-server@$SERVER_NAME.service
+echo "============================================================================================"
+# --------------------------------------------------------------------------------------------------
+
+# --------------------------------------------------------------------------------------------------
+# Создание инфраструктуры конфигурации клиентских систем
+# --------------------------------------------------------------------------------------------------
+echo "============================================================================================"
+echo "Создание инфраструктуры конфигурации клиентских систем"
+echo "============================================================================================"
+echo "Создание дирректорий с конфигами клиентов"
+rm -rf $CLIENT_DIR
+mkdir -p $CLIENT_DIR/files
+cat base.conf | sed "s#IP_ADDR_SERVER\sPORT_SERVER#$IP_ADDR_SERVER $OPENVPN_PORT#" > $CLIENT_DIR/base.conf
+cp make_client.sh $CLIENT_DIR/
+chmod u+x $CLIENT_DIR/make_client.sh
+echo "============================================================================================"
+echo "Сервер развернут"
 echo "============================================================================================"
 # --------------------------------------------------------------------------------------------------
